@@ -1,0 +1,8 @@
+{
+  "name": "Remix حسابداری پیشرفته تجارتی و گدام‌داری",
+  "description": "سیستم جامع حسابداری دو ارزی (دلار و افغانی)، خرید و فروش به تن و کیسه، مدیریت طلبات و بدهیات و گدام‌های معمولی و امانی",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
