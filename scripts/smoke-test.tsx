@@ -235,6 +235,37 @@ console.log('\n[4/4] Responsive shell wiring');
   check('desktop sidebar docks with lg: class', !!sidebar && /lg:translate-x-0/.test(sidebar.className));
   desktopRoot.unmount();
   desktopHost.remove();
+  // Dialogs triggered from the drawer must be rendered OUTSIDE the transformed
+  // drawer element, otherwise `position: fixed` would be offset/clipped.
+  viewportIsDesktop = false;
+  const drawerHost = document.createElement('div');
+  document.body.appendChild(drawerHost);
+  const drawerRoot = createRoot(drawerHost);
+  drawerRoot.render(
+    React.createElement(
+      AccountingProvider,
+      null,
+      React.createElement(ThemeProvider, null,
+        React.createElement(Sidebar as any, { activeTab: 'dashboard', setActiveTab: () => {}, isOpen: true, onClose: () => {} })
+      )
+    )
+  );
+  await wait(500);
+  const drawerEl = drawerHost.querySelector('#app-sidebar-main');
+  const branchButton = Array.from(drawerHost.querySelectorAll('button')).find(b =>
+    /تغییر واحد شرکت/.test(b.textContent || '')
+  ) as HTMLButtonElement | undefined;
+  check('drawer footer action exists', !!branchButton);
+  branchButton?.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+  await wait(300);
+  const modalHeading = Array.from(drawerHost.querySelectorAll('h3')).find(h =>
+    /انتخاب واحد/.test(h.textContent || '')
+  );
+  check('drawer action opens its dialog', !!modalHeading);
+  check('dialog is outside the drawer element', !!modalHeading && !drawerEl?.contains(modalHeading));
+  drawerRoot.unmount();
+  drawerHost.remove();
+
   root.unmount();
   host.remove();
 }

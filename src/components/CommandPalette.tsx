@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAccounting } from '../context/AccountingContext';
 import { NavTab } from './Sidebar';
-import { Invoice, Party, Product } from '../types';
+import { Party, Product } from '../types';
 import { formatCurrency } from '../utils/formatters';
 // Cardex drill-downs are only needed after the user picks a search result,
 // so they are code-split to keep the palette itself instantly available.
