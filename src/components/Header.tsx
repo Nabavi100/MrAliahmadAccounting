@@ -7,6 +7,11 @@ import {
   Cloud,
   Search,
   Keyboard,
+  Server,
+  CheckCircle2,
+  AlertTriangle,
+  XCircle,
+  Loader2,
 } from 'lucide-react';
 import { NavTab } from './Sidebar';
 import { ThemeSwitcherDropdown } from './ThemeSwitcherDropdown';
@@ -33,7 +38,8 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenCommandPalette,
   onShowShortcuts,
 }) => {
-  const { currentUser, companySettings, logout } = useAccounting();
+  const { currentUser, companySettings, logout, serverSyncState, serverSyncEnabled, serverSyncMessage, isServerSyncing } =
+    useAccounting();
 
   return (
     <header className="h-16 bg-[#F8FAFC] border-b border-slate-200/70 flex items-center justify-between px-3 sm:px-6 shrink-0 z-10 font-sans select-none" dir="rtl">
@@ -108,6 +114,53 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* Left side: Minimal Chic Action Icons (Google Drive, Telegram, Theme, User, Lock) */}
       <div className="flex items-center gap-1.5 sm:gap-2">
+        {/* Server data-sync status indicator (click to open the backup tab) */}
+        {(() => {
+          const tone: Record<string, string> = {
+            connected: 'bg-emerald-50 text-emerald-600 border-emerald-200 hover:bg-emerald-100',
+            unreachable: 'bg-amber-50 text-amber-600 border-amber-200 hover:bg-amber-100',
+            unauthorized: 'bg-rose-50 text-rose-600 border-rose-200 hover:bg-rose-100',
+            conflict: 'bg-orange-50 text-orange-600 border-orange-200 hover:bg-orange-100',
+            unknown: 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100',
+          };
+          const labels: Record<string, string> = {
+            connected: 'اطلاعات روی سرور ذخیره می‌شود',
+            unreachable: 'ارتباط با سرور برقرار نیست (اطلاعات در مرورگر محفوظ است)',
+            unauthorized: 'کلید دسترسی سرور نامعتبر است',
+            conflict: 'تعارض اطلاعات: نسخه سرور جدیدتر است',
+            unknown: 'در حال بررسی وضعیت ذخیره‌سازی…',
+          };
+          const icon = isServerSyncing ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : serverSyncState === 'connected' ? (
+            <CheckCircle2 className="w-4 h-4" />
+          ) : serverSyncState === 'unreachable' || serverSyncState === 'conflict' ? (
+            <AlertTriangle className="w-4 h-4" />
+          ) : serverSyncState === 'unauthorized' ? (
+            <XCircle className="w-4 h-4" />
+          ) : (
+            <Server className="w-4 h-4" />
+          );
+
+          return (
+            <button
+              type="button"
+              id="header-btn-server-sync"
+              onClick={() => onOpenAccessModal && onOpenAccessModal('backup')}
+              className={`relative hidden sm:flex w-9 h-9 rounded-xl border items-center justify-center transition shadow-2xs cursor-pointer active:scale-95 ${
+                serverSyncEnabled ? tone[serverSyncState] || tone.unknown : 'bg-slate-100 text-slate-400 border-slate-200'
+              }`}
+              title={`${labels[serverSyncState] || labels.unknown}${serverSyncEnabled ? '' : ' — ذخیره‌سازی خودکار غیرفعال است'}${serverSyncMessage ? `\n${serverSyncMessage}` : ''}`}
+              aria-label="وضعیت ذخیره‌سازی روی سرور"
+            >
+              {icon}
+              {!serverSyncEnabled && (
+                <span className="absolute -top-0.5 -left-0.5 w-2.5 h-2.5 rounded-full bg-slate-400 border border-white" />
+              )}
+            </button>
+          );
+        })()}
+
         {/* Sleek Google Drive Cloud Backup Icon Button */}
         <button
           type="button"

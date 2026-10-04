@@ -1,5 +1,15 @@
 import React, { createContext, useContext, useState, useEffect, useMemo, useRef } from 'react';
 import {
+  loadAppData,
+  saveAppData,
+  getServerBackup,
+  listServerBackups,
+  setAccessKeyOverride,
+  clearAccessKeyOverride,
+  type ServerBackupInfo,
+  type ServerConnectionState,
+} from '../services/appDataService';
+import {
   Product,
   ProductCategory,
   Warehouse,
@@ -260,6 +270,25 @@ interface AccountingContextType {
   resetWipeCleanAll: () => void;
   exportJSON: () => string;
   importJSON: (jsonString: string) => boolean;
+
+  // Server-side data persistence (ذخیره‌سازی و پشتیبان‌گیری روی سرور)
+  serverSyncState: ServerConnectionState;
+  serverSyncEnabled: boolean;
+  serverSyncMessage: string;
+  serverDataInfo: {
+    revision: number;
+    updatedAt: string | null;
+    updatedBy: string | null;
+    loadedFromServer: boolean;
+  };
+  serverBackups: ServerBackupInfo[];
+  isServerSyncing: boolean;
+  syncToServerNow: () => Promise<{ ok: boolean; message: string }>;
+  loadFromServer: () => Promise<{ ok: boolean; message: string }>;
+  restoreServerBackup: (file: string) => Promise<{ ok: boolean; message: string }>;
+  refreshServerBackups: () => Promise<ServerBackupInfo[]>;
+  setServerAccessKey: (key: string) => void;
+  toggleServerSync: (enabled: boolean) => void;
 }
 
 const LOCAL_STORAGE_KEY = 'AFGHAN_ACCOUNTING_DATA_V2';
@@ -623,6 +652,531 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   useEffect(() => {
     safeSetItem(LOCAL_STORAGE_KEY + '_cash', JSON.stringify(cashRegister));
   }, [cashRegister]);
+
+  // ========================================================================
+  // SERVER-SIDE DATA PERSISTENCE (ذخیره‌سازی اطلاعات روی سرور)
+  // ------------------------------------------------------------------------
+  // The bookkeeping dataset is mirrored to the server so that:
+  //   • clearing the browser cache/history can no longer destroy the books,
+  //   • several computers/users can work on the same data,
+  //   • automatic rotating backups exist on the server.
+  // The browser copy stays as a fast local cache.
+  // ========================================================================
+  const SERVER_DATA_VERSION = '3.0';
+
+  /** Every field that is part of the shared dataset (audit logs stay local). */
+  const CLOUD_DATA_KEYS = [
+    'companySettings',
+    'users',
+    'currentUser',
+    'productCategories',
+    'products',
+    'warehouses',
+    'stocks',
+    'parties',
+    'partyGroups',
+    'invoices',
+    'transactions',
+    'transfers',
+    'consignmentMovements',
+    'expenseCategories',
+    'expenseDefinitions',
+    'expenses',
+    'incomeCategories',
+    'incomes',
+    'currencies',
+    'cashAccounts',
+    'assetGroups',
+    'fixedAssets',
+    'shareholders',
+    'cashRegister',
+  ] as const;
+
+  const buildCloudData = (): Record<string, any> => {
+    const source: Record<string, any> = {
+      companySettings,
+      users,
+      currentUser,
+      productCategories,
+      products,
+      warehouses,
+      stocks,
+      parties,
+      partyGroups,
+      invoices,
+      transactions,
+      transfers,
+      consignmentMovements,
+      expenseCategories,
+      expenseDefinitions,
+      expenses,
+      incomeCategories,
+      incomes,
+      currencies,
+      cashAccounts,
+      assetGroups,
+      fixedAssets,
+      shareholders,
+      cashRegister,
+    };
+    const out: Record<string, any> = {};
+    CLOUD_DATA_KEYS.forEach(key => {
+      out[key] = source[key];
+    });
+    return out;
+  };
+
+  const [serverSyncState, setServerSyncState] = useState<ServerConnectionState>('unknown');
+  const [serverSyncEnabled, setServerSyncEnabled] = useState<boolean>(true);
+  const [serverSyncMessage, setServerSyncMessage] = useState<string>('');
+  const [serverDataInfo, setServerDataInfo] = useState<{
+    revision: number;
+    updatedAt: string | null;
+    updatedBy: string | null;
+    loadedFromServer: boolean;
+  }>({ revision: 0, updatedAt: null, updatedBy: null, loadedFromServer: false });
+  const [serverBackups, setServerBackups] = useState<ServerBackupInfo[]>([]);
+  const [isServerSyncing, setIsServerSyncing] = useState(false);
+  // Automatic pushing starts only after the initial server read finished, so a
+  // page load can never mark itself as "having unsaved local changes".
+  const [serverBootDone, setServerBootDone] = useState(false);
+  const lastSyncedRef = useRef<string>('');
+  const serverSyncStartedRef = useRef(false);
+  // When a conflict is detected, automatic saving pauses until the user decides,
+  // so a stale client can never silently overwrite newer data on the server.
+  const syncPausedRef = useRef(false);
+
+  // Tracks whether this browser holds changes that have not reached the server
+  // yet. Used at startup to avoid replacing newer local work with an older
+  // server copy (and vice versa).
+  const LOCAL_SYNC_STATE_KEY = 'hesabdar_server_sync_state_v1';
+  const readLocalSyncState = (): { dirty: boolean; lastLocalChangeAt: string | null; lastServerRevision: number } => {
+    try {
+      const raw = localStorage.getItem(LOCAL_SYNC_STATE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        return {
+          dirty: !!parsed?.dirty,
+          lastLocalChangeAt: parsed?.lastLocalChangeAt || null,
+          lastServerRevision: Number(parsed?.lastServerRevision) || 0,
+        };
+      }
+    } catch {
+      /* ignore */
+    }
+    return { dirty: false, lastLocalChangeAt: null, lastServerRevision: 0 };
+  };
+  const writeLocalSyncState = (state: { dirty: boolean; lastLocalChangeAt: string | null; lastServerRevision: number }) => {
+    try {
+      localStorage.setItem(LOCAL_SYNC_STATE_KEY, JSON.stringify(state));
+    } catch {
+      /* ignore */
+    }
+  };
+
+  /** Applies a dataset coming from the server (or a server backup). */
+  const applyRemoteData = (data: Record<string, any>): boolean => {
+    try {
+      if (!data || typeof data !== 'object') return false;
+      if (data.companySettings) setCompanySettings(data.companySettings);
+      if (data.productCategories) setProductCategories(data.productCategories);
+      if (data.products) setProducts(data.products);
+      if (data.warehouses) setWarehouses(data.warehouses);
+      if (data.stocks) setStocks(data.stocks);
+      if (data.parties) setParties(data.parties);
+      if (data.partyGroups) setPartyGroups(data.partyGroups);
+      if (data.invoices) setInvoices(data.invoices);
+      if (data.transactions) setTransactions(data.transactions);
+      if (data.transfers) setTransfers(data.transfers);
+      if (data.consignmentMovements) setConsignmentMovements(data.consignmentMovements);
+      if (data.expenseCategories) setExpenseCategories(data.expenseCategories);
+      if (data.expenseDefinitions) setExpenseDefinitions(data.expenseDefinitions);
+      if (data.expenses) setExpenses(data.expenses);
+      if (data.incomeCategories) setIncomeCategories(data.incomeCategories);
+      if (data.incomes) setIncomes(data.incomes);
+      if (data.currencies) setCurrencies(data.currencies);
+      if (data.cashAccounts) setCashAccounts(data.cashAccounts);
+      if (data.assetGroups) setAssetGroups(data.assetGroups);
+      if (data.fixedAssets) setFixedAssets(data.fixedAssets);
+      if (data.shareholders) setShareholders(data.shareholders);
+      if (data.cashRegister) setCashRegister(data.cashRegister);
+      if (Array.isArray(data.users) && data.users.length > 0) {
+        setUsers(data.users);
+        setCurrentUser(data.currentUser || data.users[0]);
+      }
+      return true;
+    } catch (err) {
+      console.error('[ServerSync] Failed to apply remote data', err);
+      return false;
+    }
+  };
+
+  const refreshServerBackups = async () => {
+    const backups = await listServerBackups();
+    setServerBackups(backups);
+    return backups;
+  };
+
+  /** Boot: pull the dataset from the server (or seed the server on first run). */
+  useEffect(() => {
+    if (serverSyncStartedRef.current) return;
+    serverSyncStartedRef.current = true;
+
+    let cancelled = false;
+    (async () => {
+      setIsServerSyncing(true);
+      const result = await loadAppData();
+      if (cancelled) return;
+
+      const finishBoot = () => {
+        setServerBootDone(true);
+        setIsServerSyncing(false);
+      };
+
+      if (result.unauthorized) {
+        setServerSyncState('unauthorized');
+        setServerSyncMessage(
+          'کلید دسترسی سرور پذیرفته نشد. در بخش «پشتیبان‌گیری» کلید صحیح را وارد کنید یا متغیر APP_DATA_KEY سرور را بررسی نمایید.'
+        );
+        finishBoot();
+        return;
+      }
+
+      if (result.data) {
+        // Safety: if this browser holds changes that were never saved to the
+        // server, do not overwrite them silently — ask the user to choose.
+        const localState = readLocalSyncState();
+        const serverTime = result.meta.updatedAt ? new Date(result.meta.updatedAt).getTime() : 0;
+        const localTime = localState.lastLocalChangeAt ? new Date(localState.lastLocalChangeAt).getTime() : 0;
+        const localIsNewer = localState.dirty && localTime > serverTime;
+
+        if (localIsNewer) {
+          syncPausedRef.current = true;
+          lastSyncedRef.current = JSON.stringify(result.data);
+          setServerDataInfo({
+            revision: result.meta.revision,
+            updatedAt: result.meta.updatedAt,
+            updatedBy: result.meta.updatedBy || null,
+            loadedFromServer: false,
+          });
+          setServerSyncState('conflict');
+          setServerSyncMessage(
+            `تغییرات ذخیره‌نشده‌ای در این مرورگر وجود دارد (آخرین تغییر: ${new Date(localTime).toLocaleString('fa-IR')}) در حالی که نسخه سرور قدیمی‌تر است. برای جلوگیری از از دست رفتن اطلاعات، ذخیره‌سازی خودکار متوقف شد؛ لطفاً در بخش پشتیبان‌گیری یکی از دو نسخه را انتخاب کنید.`
+          );
+          notify(
+            'warning',
+            'انتخاب نسخه اطلاعات لازم است',
+            'تغییرات این مرورگر روی سرور ذخیره نشده است. به بخش پشتیبان‌گیری مراجعه کنید.'
+          );
+        } else {
+          const applied = applyRemoteData(result.data);
+          if (applied) {
+            lastSyncedRef.current = JSON.stringify(result.data);
+            writeLocalSyncState({ dirty: false, lastLocalChangeAt: null, lastServerRevision: result.meta.revision });
+            setServerDataInfo({
+              revision: result.meta.revision,
+              updatedAt: result.meta.updatedAt,
+              updatedBy: result.meta.updatedBy || null,
+              loadedFromServer: true,
+            });
+            setServerSyncState('connected');
+            setServerSyncMessage('');
+          } else {
+            setServerSyncState('unreachable');
+            setServerSyncMessage('اطلاعات ذخیره‌شده روی سرور قابل خواندن نبود.');
+          }
+        }
+      } else if (!result.error) {
+        // First run on a fresh server: upload what the browser already has.
+        const payload = buildCloudData();
+        const serialized = JSON.stringify(payload);
+        const save = await saveAppData(
+          payload,
+          0,
+          currentUser?.name || 'سیستم',
+          SERVER_DATA_VERSION
+        );
+        if (save.ok) {
+          lastSyncedRef.current = serialized;
+          writeLocalSyncState({
+            dirty: false,
+            lastLocalChangeAt: null,
+            lastServerRevision: save.revision || Date.now(),
+          });
+          setServerSyncState('connected');
+          setServerDataInfo({
+            revision: save.revision || Date.now(),
+            updatedAt: new Date().toISOString(),
+            updatedBy: currentUser?.name || 'سیستم',
+            loadedFromServer: false,
+          });
+          setServerSyncMessage('اطلاعات موجود در این مرورگر به سرور منتقل و ذخیره شد.');
+        } else {
+          setServerSyncState('unreachable');
+          setServerSyncMessage(save.error || 'انتقال اطلاعات به سرور ناموفق بود.');
+        }
+      } else {
+        setServerSyncState('unreachable');
+        setServerSyncMessage(result.error || 'ارتباط با سرور برقرار نشد.');
+      }
+
+      if (!cancelled) {
+        finishBoot();
+        refreshServerBackups().catch(() => {});
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /** Push local changes to the server (debounced) whenever the dataset changes. */
+  useEffect(() => {
+    if (!serverSyncEnabled || !serverBootDone) return;
+
+    const timer = setTimeout(async () => {
+      if (syncPausedRef.current) return; // conflict awaiting a user decision
+      const payload = buildCloudData();
+      const serialized = JSON.stringify(payload);
+      if (serialized === lastSyncedRef.current) {
+        writeLocalSyncState({ dirty: false, lastLocalChangeAt: null, lastServerRevision: readLocalSyncState().lastServerRevision });
+        return; // nothing new to save
+      }
+
+      // Only now are there genuinely unsaved changes: remember them, so even a
+      // crash or a closed tab cannot make them look "already saved".
+      writeLocalSyncState({
+        dirty: true,
+        lastLocalChangeAt: new Date().toISOString(),
+        lastServerRevision: readLocalSyncState().lastServerRevision,
+      });
+
+      setIsServerSyncing(true);
+      const save = await saveAppData(
+        payload,
+        serverDataInfo.revision,
+        currentUser?.name || 'سیستم',
+        SERVER_DATA_VERSION
+      );
+      setIsServerSyncing(false);
+
+      if (save.ok) {
+        lastSyncedRef.current = serialized;
+        writeLocalSyncState({
+          dirty: false,
+          lastLocalChangeAt: null,
+          lastServerRevision: save.revision || Date.now(),
+        });
+        setServerSyncState('connected');
+        setServerSyncMessage('');
+        setServerDataInfo(prev => ({
+          ...prev,
+          revision: save.revision || Date.now(),
+          updatedAt: save.serverUpdatedAt || new Date().toISOString(),
+          updatedBy: currentUser?.name || 'سیستم',
+        }));
+        return;
+      }
+
+      if (save.conflict) {
+        // Another user/browser saved a newer version — never overwrite silently.
+        syncPausedRef.current = true;
+        setServerSyncState('conflict');
+        setServerSyncMessage(
+          `اطلاعات روی سرور توسط «${save.serverUpdatedBy || 'کاربر دیگر'}» جدیدتر شده است. برای جلوگیری از از دست رفتن اطلاعات، ذخیره‌سازی خودکار متوقف شد.`
+        );
+        notify(
+          'warning',
+          'تعارض در همگام‌سازی با سرور',
+          'یک نسخه جدیدتر از اطلاعات روی سرور وجود دارد. وارد بخش پشتیبان‌گیری شوید.'
+        );
+        return;
+      }
+
+      setServerSyncState('unreachable');
+      setServerSyncMessage(save.error || 'ذخیره‌سازی خودکار روی سرور ممکن نشد؛ اطلاعات در مرورگر محفوظ است.');
+    }, 2000);
+
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    serverSyncEnabled,
+    serverBootDone,
+    companySettings,
+    users,
+    currentUser,
+    productCategories,
+    products,
+    warehouses,
+    stocks,
+    parties,
+    partyGroups,
+    invoices,
+    transactions,
+    transfers,
+    consignmentMovements,
+    expenseCategories,
+    expenseDefinitions,
+    expenses,
+    incomeCategories,
+    incomes,
+    currencies,
+    cashAccounts,
+    assetGroups,
+    fixedAssets,
+    shareholders,
+    cashRegister,
+  ]);
+
+  /** Manual "save now" action from the UI. */
+  const syncToServerNow = async (): Promise<{ ok: boolean; message: string }> => {
+    const payload = buildCloudData();
+    const serialized = JSON.stringify(payload);
+    // While a conflict is unresolved the local copy is treated as authoritative
+    // (the user explicitly asked to save it) and the previous server copy is
+    // still preserved in the rotating backups.
+    const forced = syncPausedRef.current || serverSyncState === 'conflict';
+    setIsServerSyncing(true);
+    const save = await saveAppData(
+      payload,
+      forced ? 0 : serverDataInfo.revision,
+      currentUser?.name || 'سیستم',
+      SERVER_DATA_VERSION
+    );
+    setIsServerSyncing(false);
+
+    if (save.ok) {
+      syncPausedRef.current = false;
+      writeLocalSyncState({
+        dirty: false,
+        lastLocalChangeAt: null,
+        lastServerRevision: save.revision || Date.now(),
+      });
+      lastSyncedRef.current = serialized;
+      setServerSyncState('connected');
+      setServerSyncMessage('اطلاعات با موفقیت روی سرور ذخیره شد.');
+      setServerDataInfo(prev => ({
+        ...prev,
+        revision: save.revision || Date.now(),
+        updatedAt: save.serverUpdatedAt || new Date().toISOString(),
+        updatedBy: currentUser?.name || 'سیستم',
+      }));
+      refreshServerBackups().catch(() => {});
+      notify('success', 'ذخیره‌سازی روی سرور انجام شد', 'نسخه جدید اطلاعات به‌صورت امن روی سرور ثبت گردید.');
+      return { ok: true, message: 'اطلاعات روی سرور ذخیره شد.' };
+    }
+
+    if (save.conflict) {
+      setServerSyncState('conflict');
+      setServerSyncMessage('نسخه سرور جدیدتر است؛ برای بازنویسی از دکمه «ذخیره اجباری» استفاده کنید.');
+      return { ok: false, message: 'نسخه سرور جدیدتر است. ابتدا اطلاعات سرور را بازخوانی یا به‌صورت اجباری ذخیره کنید.' };
+    }
+
+    setServerSyncState('unreachable');
+    setServerSyncMessage(save.error || 'ذخیره‌سازی روی سرور ناموفق بود.');
+    return { ok: false, message: save.error || 'ذخیره‌سازی روی سرور ناموفق بود.' };
+  };
+
+  /** Adopt the server copy (discarding local unsaved changes). */
+  const loadFromServer = async (): Promise<{ ok: boolean; message: string }> => {
+    setIsServerSyncing(true);
+    const result = await loadAppData();
+    setIsServerSyncing(false);
+
+    if (result.unauthorized) {
+      setServerSyncState('unauthorized');
+      return { ok: false, message: result.error || 'کلید دسترسی سرور نامعتبر است.' };
+    }
+    if (result.error) {
+      setServerSyncState('unreachable');
+      setServerSyncMessage(result.error);
+      return { ok: false, message: result.error };
+    }
+    if (!result.data) {
+      return { ok: false, message: 'هنوز اطلاعاتی روی سرور ذخیره نشده است.' };
+    }
+
+    const applied = applyRemoteData(result.data);
+    if (!applied) return { ok: false, message: 'خواندن اطلاعات سرور ناموفق بود.' };
+
+    syncPausedRef.current = false;
+    lastSyncedRef.current = JSON.stringify(result.data);
+    writeLocalSyncState({ dirty: false, lastLocalChangeAt: null, lastServerRevision: result.meta.revision });
+    setServerSyncState('connected');
+    setServerSyncMessage('آخرین نسخه اطلاعات از سرور بازخوانی شد.');
+    setServerDataInfo({
+      revision: result.meta.revision,
+      updatedAt: result.meta.updatedAt,
+      updatedBy: result.meta.updatedBy || null,
+      loadedFromServer: true,
+    });
+    refreshServerBackups().catch(() => {});
+    notify('success', 'اطلاعات از سرور بازخوانی شد', 'نسخه سرور در برنامه بارگذاری گردید.');
+    return { ok: true, message: 'اطلاعات سرور با موفقیت بارگذاری شد.' };
+  };
+
+  /** Restore one of the automatic server backups (authoritative write). */
+  const restoreServerBackup = async (file: string): Promise<{ ok: boolean; message: string }> => {
+    setIsServerSyncing(true);
+    const backupData = await getServerBackup(file);
+    if (!backupData) {
+      setIsServerSyncing(false);
+      return { ok: false, message: 'خواندن فایل پشتیبان ناموفق بود.' };
+    }
+    const applied = applyRemoteData(backupData);
+    if (!applied) {
+      setIsServerSyncing(false);
+      return { ok: false, message: 'محتوای فایل پشتیبان نامعتبر است.' };
+    }
+
+    const payload = buildCloudData();
+    const save = await saveAppData(
+      payload,
+      0, // authoritative restore
+      currentUser?.name || 'سیستم',
+      SERVER_DATA_VERSION
+    );
+    setIsServerSyncing(false);
+
+    if (!save.ok) {
+      return { ok: false, message: save.error || 'بازگردانی نسخه پشتیبان ناموفق بود.' };
+    }
+
+    syncPausedRef.current = false;
+    lastSyncedRef.current = JSON.stringify(payload);
+    writeLocalSyncState({
+      dirty: false,
+      lastLocalChangeAt: null,
+      lastServerRevision: save.revision || Date.now(),
+    });
+    setServerSyncState('connected');
+    setServerSyncMessage('نسخه پشتیبان انتخاب‌شده با موفقیت بازیابی شد.');
+    setServerDataInfo(prev => ({
+      ...prev,
+      revision: save.revision || Date.now(),
+      updatedAt: save.serverUpdatedAt || new Date().toISOString(),
+      updatedBy: currentUser?.name || 'سیستم',
+    }));
+    refreshServerBackups().catch(() => {});
+    notify('success', 'بازیابی نسخه پشتیبان انجام شد', `اطلاعات از فایل «${file}» بازگردانی شد.`);
+    return { ok: true, message: 'نسخه پشتیبان با موفقیت بازیابی شد.' };
+  };
+
+  const setServerAccessKey = (key: string) => {
+    if (key.trim()) setAccessKeyOverride(key.trim());
+    else clearAccessKeyOverride();
+  };
+
+  const toggleServerSync = (enabled: boolean) => {
+    setServerSyncEnabled(enabled);
+    if (!enabled) {
+      setServerSyncMessage('ذخیره‌سازی خودکار روی سرور موقتاً متوقف شده است.');
+    } else {
+      setServerSyncMessage('');
+    }
+  };
 
   // Audit Logs State (دفتر ثبت رویدادها و ممیزی سیستم)
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>(() => {
@@ -3962,32 +4516,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const exportJSON = () => {
     const payload = {
-      companySettings,
-      users,
-      currentUser,
-      productCategories,
-      products,
-      warehouses,
-      stocks,
-      parties,
-      partyGroups,
-      invoices,
-      transactions,
-      transfers,
-      consignmentMovements,
-      expenseCategories,
-      expenseDefinitions,
-      expenses,
-      incomeCategories,
-      incomes,
-      currencies,
-      cashAccounts,
-      assetGroups,
-      fixedAssets,
-      shareholders,
-      cashRegister,
+      // Same shape as the server dataset, so a manual backup file can also be
+      // used to seed the server and vice versa.
+      ...buildCloudData(),
       exportDate: new Date().toISOString(),
-      systemVersion: '2.5',
+      systemVersion: SERVER_DATA_VERSION,
     };
     return JSON.stringify(payload, null, 2);
   };
@@ -4163,6 +4696,18 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         resetWipeCleanAll,
         exportJSON,
         importJSON,
+        serverSyncState,
+        serverSyncEnabled,
+        serverSyncMessage,
+        serverDataInfo,
+        serverBackups,
+        isServerSyncing,
+        syncToServerNow,
+        loadFromServer,
+        restoreServerBackup,
+        refreshServerBackups,
+        setServerAccessKey,
+        toggleServerSync,
       }}
     >
       {children}

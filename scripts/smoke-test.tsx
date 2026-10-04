@@ -178,6 +178,26 @@ console.log('\n[3/4] Workspace views');
   host.remove();
 }
 
+console.log('\n[3b/4] Server storage panel');
+{
+  const { ServerSyncPanel } = await import('../src/components/ServerSyncPanel');
+  const host = document.createElement('div');
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  root.render(
+    React.createElement(AccountingProvider, null, React.createElement(ThemeProvider, null, React.createElement(ServerSyncPanel as any, {})))
+  );
+  await wait(900);
+  const html = host.innerHTML;
+  check('panel renders', html.length > 2000, `${html.length} chars`);
+  check('shows the server storage heading', /ذخیره‌سازی خودکار روی سرور/.test(html));
+  check('offers a manual save action', /ذخیره فوری روی سرور/.test(html));
+  check('offers server backups section', /نسخه‌های پشتیبان خودکار سرور/.test(html));
+  check('explains the access key', /APP_DATA_KEY/.test(html));
+  root.unmount();
+  host.remove();
+}
+
 console.log('\n[4/4] Responsive shell wiring');
 {
   const { Sidebar } = await import('../src/components/Sidebar');

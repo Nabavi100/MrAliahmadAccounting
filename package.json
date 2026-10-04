@@ -11,7 +11,9 @@
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
     "smoke": "tsx scripts/smoke-test.tsx",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:api": "tsx scripts/api-test.ts",
+    "test:e2e": "tsx scripts/e2e-sync-test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

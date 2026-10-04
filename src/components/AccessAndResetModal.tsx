@@ -4,6 +4,7 @@ import { AppUser, UserRole, CompanySettings } from '../types';
 import { CompanyStampSeal } from './CompanyStampSeal';
 import { SignatureAndSealModal } from './SignatureAndSealModal';
 import { GoogleDriveBackupPanel } from './GoogleDriveBackupPanel';
+import { ServerSyncPanel } from './ServerSyncPanel';
 import { SecretLicenseModal } from './SecretLicenseModal';
 import { TelegramBotModal } from './TelegramBotModal';
 import { verifyProtectionLockPassword, verifyMasterSecurityPassword } from '../utils/securityMaster';
@@ -2324,6 +2325,9 @@ export const AccessAndResetModal: React.FC<AccessAndResetModalProps> = ({
                 <span>{importStatusMessage.text}</span>
               </div>
             )}
+
+            {/* Server-side storage: the primary home of the bookkeeping data */}
+            <ServerSyncPanel />
 
             <GoogleDriveBackupPanel
               onLocalExport={handleDownloadBackup}
