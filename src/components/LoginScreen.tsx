@@ -48,7 +48,7 @@ export const LoginScreen: React.FC = () => {
     <div
       id="login-screen-container"
       dir="rtl"
-      className="fixed inset-0 z-[100] bg-gradient-to-br from-slate-900 via-slate-850 to-slate-950 flex items-center justify-center p-4 overflow-y-auto font-sans select-none"
+      className="fixed inset-0 z-[100] bg-gradient-to-br from-slate-900 via-slate-800 to-slate-950 flex items-center justify-center p-3 sm:p-4 overflow-y-auto custom-scrollbar font-sans select-none app-no-tap-highlight"
     >
       {/* Background ambient lighting */}
       <div className="absolute top-1/4 -right-20 w-96 h-96 bg-blue-600/10 rounded-full blur-3xl pointer-events-none" />
@@ -57,8 +57,16 @@ export const LoginScreen: React.FC = () => {
       <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl border border-slate-200/80 overflow-hidden relative z-10 animate-fadeIn">
         {/* Top Header Branding Banner */}
         <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 text-white p-6 pb-7 text-center relative">
-          <div className="w-16 h-16 bg-blue-600 rounded-2xl mx-auto flex items-center justify-center shadow-lg shadow-blue-600/30 mb-3 border-2 border-white/20">
-            <Building2 className="w-8 h-8 text-white" />
+          <div className="w-16 h-16 bg-blue-600 rounded-2xl mx-auto flex items-center justify-center shadow-lg shadow-blue-600/30 mb-3 border-2 border-white/20 overflow-hidden">
+            {companySettings?.logoUrl ? (
+              <img
+                src={companySettings.logoUrl}
+                alt={companySettings?.name || 'لوگوی شرکت'}
+                className="w-full h-full object-contain bg-white"
+              />
+            ) : (
+              <Building2 className="w-8 h-8 text-white" />
+            )}
           </div>
           <h1 className="text-lg font-black tracking-tight text-white">
             {companySettings?.name || 'شرکت تجارتی برادران نبوی'}
@@ -87,7 +95,7 @@ export const LoginScreen: React.FC = () => {
                     key={u.id}
                     type="button"
                     onClick={() => handleQuickSelectUser(u.id)}
-                    className={`flex items-center gap-2.5 p-2 rounded-xl text-right transition border cursor-pointer ${
+                    className={`flex items-center gap-2.5 p-2.5 min-h-[46px] rounded-xl text-right transition border cursor-pointer active:scale-[0.98] ${
                       isSelected
                         ? 'bg-blue-50 border-blue-500 text-blue-900 shadow-xs'
                         : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
@@ -141,6 +149,8 @@ export const LoginScreen: React.FC = () => {
                   type={showPassword ? 'text' : 'password'}
                   required
                   autoFocus
+                  autoComplete="current-password"
+                  enterKeyHint="go"
                   dir="ltr"
                   placeholder="رمز عبور خود را وارد نمایید..."
                   value={password}

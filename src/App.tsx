@@ -102,6 +102,18 @@ const MainApp: React.FC = () => {
   });
   const [subFilter, setSubFilter] = useState<string>('all');
 
+  // Always start a newly opened screen from the top instead of inheriting the
+  // previous screen's scroll offset (jarring on long reports and lists).
+  useEffect(() => {
+    const container = mainScrollRef.current;
+    if (!container) return;
+    try {
+      container.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+    } catch {
+      container.scrollTop = 0;
+    }
+  }, [activeTab, subFilter]);
+
   // Remember the last visited screen so reopening the app (e.g. from a phone)
   // returns the user straight to where they left off.
   useEffect(() => {
@@ -111,6 +123,9 @@ const MainApp: React.FC = () => {
       /* storage unavailable — non-critical */
     }
   }, [activeTab]);
+
+  // The scrollable view container (reset on navigation so users always land at the top)
+  const mainScrollRef = React.useRef<HTMLElement | null>(null);
 
   // Navigation shell state: off-canvas sidebar drawer, command palette, shortcuts help
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -384,7 +399,10 @@ const MainApp: React.FC = () => {
         />
 
         {/* View Body — bottom padding keeps content clear of the mobile tab bar */}
-        <main className="flex-1 overflow-y-auto bg-slate-50 app-touch-scroll pb-24 lg:pb-0">
+        <main
+          ref={mainScrollRef}
+          className="flex-1 overflow-y-auto bg-slate-50 app-touch-scroll pb-24 lg:pb-0"
+        >
           <ErrorBoundary onReset={() => setActiveTab('dashboard')}>
             <Suspense fallback={<ViewLoadingSkeleton />}>
             <div key={activeTab} className="app-view-enter">

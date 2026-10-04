@@ -26,7 +26,21 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
     { id: 'nav-reports', label: 'گزارش‌ها', icon: <TrendingUp className="w-5 h-5" />, tab: 'reports' },
   ];
 
-  const isActive = (tab?: NavTab) => activeTab === tab;
+  // A tab counts as active for its own screen and for every related sub-screen
+  // (e.g. the invoice tab stays highlighted while creating a purchase invoice).
+  const activeGroups: Record<string, NavTab[]> = {
+    dashboard: ['dashboard'],
+    trade_hub: ['trade_hub', 'invoices', 'sales_invoices', 'purchase_invoices', 'new_sale', 'new_purchase', 'return_sell', 'return_buy', 'new_return_sell', 'new_return_buy'],
+    receipt_payment_hub: ['receipt_payment_hub', 'new_receipt', 'receipts_list', 'new_payment', 'payments_list'],
+    reports: ['reports', 'journal', 'transactions'],
+  };
+
+  const isActive = (tab?: NavTab) => {
+    if (!tab) return false;
+    const group = activeGroups[String(tab)];
+    if (!group) return activeTab === tab;
+    return group.includes(activeTab) || activeTab === tab;
+  };
 
   return (
     <nav

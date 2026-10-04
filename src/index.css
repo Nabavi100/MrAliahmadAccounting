@@ -642,6 +642,125 @@ body.gold .btn-active-luxury {
 }
 
 /* ========================================================================= */
+/* DARK / GOLD THEME COVERAGE FOR COMMON INTERACTIVE STATES                  */
+/* The dark themes override Tailwind utility classes directly; these rules   */
+/* extend that coverage to hover states, dividers and tinted status blocks   */
+/* (which previously flashed light backgrounds in dark mode).                */
+/* ========================================================================= */
+:is(body.theme-dark, body.dark:not(.gold):not(.theme-executive)) :is(
+    .hover\:bg-slate-50,
+    .hover\:bg-slate-100,
+    .hover\:bg-slate-50\/80,
+    .hover\:bg-slate-50\/60
+  ):hover {
+  background-color: #1e293b !important;
+}
+
+:is(body.theme-gold, body.gold) :is(
+    .hover\:bg-slate-50,
+    .hover\:bg-slate-100,
+    .hover\:bg-slate-50\/80,
+    .hover\:bg-slate-50\/60
+  ):hover {
+  background-color: #241f19 !important;
+}
+
+:is(body.theme-dark, body.dark:not(.gold):not(.theme-executive), body.theme-executive)
+  :is(.divide-slate-100, .divide-slate-200) > :not(:last-child) {
+  border-color: #1e293b !important;
+}
+
+:is(body.theme-gold, body.gold) :is(.divide-slate-100, .divide-slate-200) > :not(:last-child) {
+  border-color: rgba(217, 119, 6, 0.25) !important;
+}
+
+/* Tinted status / KPI blocks keep their hue but with dark-mode friendly depth */
+:is(body.theme-dark, body.dark:not(.gold):not(.theme-executive), body.theme-executive) :is(
+    .bg-blue-50,
+    .bg-blue-50\/90,
+    .bg-blue-100
+  ) {
+  background-color: rgba(37, 99, 235, 0.16) !important;
+}
+
+:is(body.theme-dark, body.dark:not(.gold):not(.theme-executive), body.theme-executive) :is(
+    .bg-emerald-50,
+    .bg-emerald-100
+  ) {
+  background-color: rgba(16, 185, 129, 0.14) !important;
+}
+
+:is(body.theme-dark, body.dark:not(.gold):not(.theme-executive), body.theme-executive) :is(
+    .bg-amber-50,
+    .bg-amber-100
+  ) {
+  background-color: rgba(245, 158, 11, 0.14) !important;
+}
+
+:is(body.theme-dark, body.dark:not(.gold):not(.theme-executive), body.theme-executive) :is(
+    .bg-rose-50,
+    .bg-rose-100
+  ) {
+  background-color: rgba(244, 63, 94, 0.14) !important;
+}
+
+:is(body.theme-dark, body.dark:not(.gold):not(.theme-executive), body.theme-executive) :is(
+    .bg-sky-50,
+    .bg-indigo-50,
+    .bg-violet-50,
+    .bg-teal-50,
+    .bg-purple-50,
+    .bg-orange-50
+  ) {
+  background-color: rgba(14, 165, 233, 0.14) !important;
+}
+
+/* Brighten the strong status text colours so they stay legible on dark cards */
+:is(body.theme-dark, body.dark:not(.gold):not(.theme-executive), body.theme-executive) :is(
+    .text-blue-600,
+    .text-blue-700,
+    .text-indigo-600,
+    .text-indigo-700
+  ) {
+  color: #93c5fd !important;
+}
+
+:is(body.theme-dark, body.dark:not(.gold):not(.theme-executive), body.theme-executive) :is(
+    .text-emerald-600,
+    .text-emerald-700,
+    .text-teal-600,
+    .text-green-600,
+    .text-green-700
+  ) {
+  color: #6ee7b7 !important;
+}
+
+:is(body.theme-dark, body.dark:not(.gold):not(.theme-executive), body.theme-executive) :is(
+    .text-amber-600,
+    .text-amber-700,
+    .text-orange-600
+  ) {
+  color: #fcd34d !important;
+}
+
+:is(body.theme-dark, body.dark:not(.gold):not(.theme-executive), body.theme-executive) :is(
+    .text-rose-600,
+    .text-rose-700,
+    .text-red-600
+  ) {
+  color: #fda4af !important;
+}
+
+:is(body.theme-dark, body.dark:not(.gold):not(.theme-executive), body.theme-executive) :is(
+    .text-sky-600,
+    .text-sky-700,
+    .text-violet-600,
+    .text-purple-600
+  ) {
+  color: #7dd3fc !important;
+}
+
+/* ========================================================================= */
 /* ENTRANCE / MOTION UTILITIES                                              */
 /* Restores the `animate-in fade-in zoom-in-95 slide-in-from-*` class family */
 /* (used across the app) plus the shorthand animate-fadeIn / scaleUp / shake */
