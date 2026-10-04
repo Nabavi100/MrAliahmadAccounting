@@ -5,6 +5,13 @@ import {
   Menu,
   Lock,
   Cloud,
+  Search,
+  Keyboard,
+  Server,
+  CheckCircle2,
+  AlertTriangle,
+  XCircle,
+  Loader2,
 } from 'lucide-react';
 import { NavTab } from './Sidebar';
 import { ThemeSwitcherDropdown } from './ThemeSwitcherDropdown';
@@ -17,6 +24,8 @@ interface HeaderProps {
   onOpenAccessModal?: (tab?: 'roles' | 'reset' | 'backup' | 'company' | 'telegram') => void;
   onOpenTelegramModal?: () => void;
   onToggleSidebar?: () => void;
+  onOpenCommandPalette?: () => void;
+  onShowShortcuts?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -26,8 +35,11 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenAccessModal,
   onOpenTelegramModal,
   onToggleSidebar,
+  onOpenCommandPalette,
+  onShowShortcuts,
 }) => {
-  const { currentUser, companySettings, logout } = useAccounting();
+  const { currentUser, companySettings, logout, serverSyncState, serverSyncEnabled, serverSyncMessage, isServerSyncing } =
+    useAccounting();
 
   return (
     <header className="h-16 bg-[#F8FAFC] border-b border-slate-200/70 flex items-center justify-between px-3 sm:px-6 shrink-0 z-10 font-sans select-none" dir="rtl">
@@ -48,7 +60,7 @@ export const Header: React.FC<HeaderProps> = ({
         <button
           type="button"
           onClick={() => onOpenAccessModal && onOpenAccessModal('company')}
-          className="flex items-center gap-2 px-3 py-1.5 bg-white hover:bg-slate-50 border border-slate-200/90 rounded-xl shadow-2xs transition cursor-pointer max-w-[200px] sm:max-w-none"
+          className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-white hover:bg-slate-50 border border-slate-200/90 rounded-xl shadow-2xs transition cursor-pointer max-w-[150px] md:max-w-none"
           title="مشخصات و تنظیمات لوگوی شرکت"
         >
           {companySettings.logoUrl ? (
@@ -65,14 +77,96 @@ export const Header: React.FC<HeaderProps> = ({
         <CurrencyRateCalculator minimal />
       </div>
 
+      {/* Center: global search / command palette trigger */}
+      {onOpenCommandPalette && (
+        <div className="flex-1 flex justify-center px-2 min-w-0">
+          {/* Wide search pill on tablets & desktops */}
+          <button
+            type="button"
+            id="header-btn-global-search"
+            onClick={onOpenCommandPalette}
+            className="hidden sm:flex items-center gap-2.5 w-full max-w-md px-3.5 py-2 bg-white hover:bg-slate-50 text-slate-400 hover:text-slate-600 border border-slate-200/90 hover:border-slate-300 rounded-xl shadow-2xs transition cursor-pointer group"
+            title="جستجوی سراسری (Ctrl + K)"
+            aria-label="جستجوی سراسری"
+          >
+            <Search className="w-4 h-4 shrink-0 text-slate-400 group-hover:text-blue-600 transition-colors" />
+            <span className="flex-1 text-right text-xs font-bold truncate">
+              جستجوی مشتری، کالا، فاکتور یا دستور…
+            </span>
+            <kbd className="hidden md:inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-slate-100 border border-slate-200 text-[10px] font-mono font-bold text-slate-500 shrink-0">
+              Ctrl K
+            </kbd>
+          </button>
+
+          {/* Compact icon-only trigger on phones */}
+          <button
+            type="button"
+            id="header-btn-global-search-compact"
+            onClick={onOpenCommandPalette}
+            className="sm:hidden w-9 h-9 rounded-xl bg-white hover:bg-slate-50 text-slate-500 border border-slate-200/90 flex items-center justify-center transition shadow-2xs cursor-pointer active:scale-95"
+            aria-label="جستجوی سراسری"
+            title="جستجو"
+          >
+            <Search className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* Left side: Minimal Chic Action Icons (Google Drive, Telegram, Theme, User, Lock) */}
       <div className="flex items-center gap-1.5 sm:gap-2">
+        {/* Server data-sync status indicator (click to open the backup tab) */}
+        {(() => {
+          const tone: Record<string, string> = {
+            connected: 'bg-emerald-50 text-emerald-600 border-emerald-200 hover:bg-emerald-100',
+            unreachable: 'bg-amber-50 text-amber-600 border-amber-200 hover:bg-amber-100',
+            unauthorized: 'bg-rose-50 text-rose-600 border-rose-200 hover:bg-rose-100',
+            conflict: 'bg-orange-50 text-orange-600 border-orange-200 hover:bg-orange-100',
+            unknown: 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100',
+          };
+          const labels: Record<string, string> = {
+            connected: 'اطلاعات روی سرور ذخیره می‌شود',
+            unreachable: 'ارتباط با سرور برقرار نیست (اطلاعات در مرورگر محفوظ است)',
+            unauthorized: 'کلید دسترسی سرور نامعتبر است',
+            conflict: 'تعارض اطلاعات: نسخه سرور جدیدتر است',
+            unknown: 'در حال بررسی وضعیت ذخیره‌سازی…',
+          };
+          const icon = isServerSyncing ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : serverSyncState === 'connected' ? (
+            <CheckCircle2 className="w-4 h-4" />
+          ) : serverSyncState === 'unreachable' || serverSyncState === 'conflict' ? (
+            <AlertTriangle className="w-4 h-4" />
+          ) : serverSyncState === 'unauthorized' ? (
+            <XCircle className="w-4 h-4" />
+          ) : (
+            <Server className="w-4 h-4" />
+          );
+
+          return (
+            <button
+              type="button"
+              id="header-btn-server-sync"
+              onClick={() => onOpenAccessModal && onOpenAccessModal('backup')}
+              className={`relative hidden sm:flex w-9 h-9 rounded-xl border items-center justify-center transition shadow-2xs cursor-pointer active:scale-95 ${
+                serverSyncEnabled ? tone[serverSyncState] || tone.unknown : 'bg-slate-100 text-slate-400 border-slate-200'
+              }`}
+              title={`${labels[serverSyncState] || labels.unknown}${serverSyncEnabled ? '' : ' — ذخیره‌سازی خودکار غیرفعال است'}${serverSyncMessage ? `\n${serverSyncMessage}` : ''}`}
+              aria-label="وضعیت ذخیره‌سازی روی سرور"
+            >
+              {icon}
+              {!serverSyncEnabled && (
+                <span className="absolute -top-0.5 -left-0.5 w-2.5 h-2.5 rounded-full bg-slate-400 border border-white" />
+              )}
+            </button>
+          );
+        })()}
+
         {/* Sleek Google Drive Cloud Backup Icon Button */}
         <button
           type="button"
           id="header-btn-google-drive"
           onClick={() => onOpenAccessModal && onOpenAccessModal('backup')}
-          className="w-9 h-9 rounded-xl bg-white hover:bg-blue-50 text-blue-600 hover:text-blue-700 border border-slate-200/90 flex items-center justify-center transition shadow-2xs cursor-pointer active:scale-95"
+          className="hidden sm:flex w-9 h-9 rounded-xl bg-white hover:bg-blue-50 text-blue-600 hover:text-blue-700 border border-slate-200/90 items-center justify-center transition shadow-2xs cursor-pointer active:scale-95"
           title="پشتیبان‌گیری ابری و تنظیمات گوگل درایو"
           aria-label="گوگل درایو"
         >
@@ -84,7 +178,7 @@ export const Header: React.FC<HeaderProps> = ({
           type="button"
           id="header-btn-telegram"
           onClick={() => onOpenTelegramModal ? onOpenTelegramModal() : onOpenAccessModal?.('telegram')}
-          className="w-9 h-9 rounded-xl bg-white hover:bg-sky-50 text-[#229ED9] hover:text-[#1982b8] border border-slate-200/90 flex items-center justify-center transition shadow-2xs cursor-pointer active:scale-95"
+          className="hidden sm:flex w-9 h-9 rounded-xl bg-white hover:bg-sky-50 text-[#229ED9] hover:text-[#1982b8] border border-slate-200/90 items-center justify-center transition shadow-2xs cursor-pointer active:scale-95"
           title="مدیریت تلگرام و ارتباط با مشتریان"
           aria-label="ربات تلگرام"
         >
@@ -92,6 +186,20 @@ export const Header: React.FC<HeaderProps> = ({
             <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69a.2.2 0 00-.05-.18c-.06-.05-.14-.03-.21-.02-.09.02-1.49.95-4.22 2.79-.4.27-.76.41-1.08.4-.36-.01-1.04-.2-1.55-.37-.63-.2-1.12-.31-1.08-.66.02-.18.27-.36.74-.55 2.92-1.27 4.86-2.11 5.83-2.52 2.78-1.16 3.35-1.36 3.73-1.36.08 0 .27.02.39.12.1.08.13.19.14.27-.01.06.01.24 0 .37z" />
           </svg>
         </button>
+
+        {/* Keyboard shortcuts reference */}
+        {onShowShortcuts && (
+          <button
+            type="button"
+            id="header-btn-shortcuts"
+            onClick={onShowShortcuts}
+            className="hidden lg:flex w-9 h-9 rounded-xl bg-white hover:bg-slate-50 text-slate-500 hover:text-slate-700 border border-slate-200/90 items-center justify-center transition shadow-2xs cursor-pointer active:scale-95"
+            title="راهنمای میان‌بُرهای کیبورد (Alt + H)"
+            aria-label="راهنمای میان‌بُرها"
+          >
+            <Keyboard className="w-4 h-4" />
+          </button>
+        )}
 
         {/* Minimal Theme Switcher Icon Button */}
         <ThemeSwitcherDropdown minimal />

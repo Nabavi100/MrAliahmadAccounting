@@ -1,54 +1,82 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { AccountingProvider, useAccounting } from './context/AccountingContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { Sidebar, NavTab } from './components/Sidebar';
 import { Header } from './components/Header';
-import { DashboardView } from './components/DashboardView';
-import { SalesPurchaseView } from './components/SalesPurchaseView';
-import { CustomersView } from './components/CustomersView';
-import { InitialDefinitionsView } from './components/InitialDefinitionsView';
-import { WarehousesView } from './components/WarehousesView';
-import { CashAndExchangeView } from './components/CashAndExchangeView';
-import { ProductsView } from './components/ProductsView';
-import { CurrenciesView } from './components/CurrenciesView';
-import { ExpensesView } from './components/ExpensesView';
-import { IncomesView } from './components/IncomesView';
-import { ReportsView } from './components/ReportsView';
-import { DocumentPrintModal } from './components/DocumentPrintModal';
-import { AccessAndResetModal } from './components/AccessAndResetModal';
-import { PaymentModal } from './components/PaymentModal';
-import { StockTransferModal } from './components/StockTransferModal';
-import { InvoiceType, PrintableDocumentPayload, Invoice } from './types';
-import { InvoiceDetailModal } from './components/InvoiceDetailModal';
-import { EditInvoiceModal } from './components/EditInvoiceModal';
-import { TransactionsLedgerView } from './components/TransactionsLedgerView';
-
-import { FixedAssetsView } from './components/FixedAssetsView';
-import { ShareholdersView } from './components/ShareholdersView';
-
-// Dedicated standalone views
-import { SalesInvoiceCreateView } from './components/SalesInvoiceCreateView';
-import { SalesInvoicesListView } from './components/SalesInvoicesListView';
-import { PurchaseInvoiceCreateView } from './components/PurchaseInvoiceCreateView';
-import { PurchaseInvoicesListView } from './components/PurchaseInvoicesListView';
-import { ReceiptCreateView } from './components/ReceiptCreateView';
-import { ReceiptsListView } from './components/ReceiptsListView';
-import { PaymentCreateView } from './components/PaymentCreateView';
-import { PaymentsListView } from './components/PaymentsListView';
-import { TradeOperationsHubView } from './components/TradeOperationsHubView';
-import { ReceiptPaymentHubView } from './components/ReceiptPaymentHubView';
-import { AuditLogView } from './components/AuditLogView';
-import { ComprehensiveJournalView } from './components/ComprehensiveJournalView';
-import { TelegramManagementView } from './components/TelegramManagementView';
-import { TelegramBotModal } from './components/TelegramBotModal';
 import { ToastContainer } from './components/ToastContainer';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { LoginScreen } from './components/LoginScreen';
+import { InvoiceType, PrintableDocumentPayload, Invoice } from './types';
 import { LicenseStatusResult, verifyLicense } from './utils/licenseSecurity';
 import { SecretLicenseModal } from './components/SecretLicenseModal';
 import { LicenseWarningModal } from './components/LicenseWarningModal';
 import { LicenseLockScreen } from './components/LicenseLockScreen';
 import { startTelegramBotListener, stopTelegramBotListener } from './services/telegramBotService';
+import { CommandPalette } from './components/CommandPalette';
+import { KeyboardShortcutsModal } from './components/KeyboardShortcutsModal';
+import { MobileBottomNav } from './components/MobileBottomNav';
+import { useGlobalShortcuts } from './hooks/useGlobalShortcuts';
+
+/* -------------------------------------------------------------------------
+ * Performance: every heavy workspace view is loaded on demand (code-split).
+ * This keeps the first paint small — important on mobile networks — while the
+ * Suspense fallback below shows a skeleton during the (cached) chunk fetch.
+ * ------------------------------------------------------------------------- */
+const lazyView = <T extends Record<string, any>, K extends keyof T>(loader: () => Promise<T>, name: K) =>
+  lazy(() => loader().then(m => ({ default: m[name] as React.ComponentType<any> })));
+
+const DashboardView = lazyView(() => import('./components/DashboardView'), 'DashboardView');
+const ComprehensiveJournalView = lazyView(() => import('./components/ComprehensiveJournalView'), 'ComprehensiveJournalView');
+const TransactionsLedgerView = lazyView(() => import('./components/TransactionsLedgerView'), 'TransactionsLedgerView');
+const TradeOperationsHubView = lazyView(() => import('./components/TradeOperationsHubView'), 'TradeOperationsHubView');
+const ReceiptPaymentHubView = lazyView(() => import('./components/ReceiptPaymentHubView'), 'ReceiptPaymentHubView');
+const InitialDefinitionsView = lazyView(() => import('./components/InitialDefinitionsView'), 'InitialDefinitionsView');
+const WarehousesView = lazyView(() => import('./components/WarehousesView'), 'WarehousesView');
+const CashAndExchangeView = lazyView(() => import('./components/CashAndExchangeView'), 'CashAndExchangeView');
+const ProductsView = lazyView(() => import('./components/ProductsView'), 'ProductsView');
+const CurrenciesView = lazyView(() => import('./components/CurrenciesView'), 'CurrenciesView');
+const ExpensesView = lazyView(() => import('./components/ExpensesView'), 'ExpensesView');
+const IncomesView = lazyView(() => import('./components/IncomesView'), 'IncomesView');
+const ReportsView = lazyView(() => import('./components/ReportsView'), 'ReportsView');
+const FixedAssetsView = lazyView(() => import('./components/FixedAssetsView'), 'FixedAssetsView');
+const ShareholdersView = lazyView(() => import('./components/ShareholdersView'), 'ShareholdersView');
+const AuditLogView = lazyView(() => import('./components/AuditLogView'), 'AuditLogView');
+const TelegramManagementView = lazyView(() => import('./components/TelegramManagementView'), 'TelegramManagementView');
+const TelegramBotModal = lazyView(() => import('./components/TelegramBotModal'), 'TelegramBotModal');
+const DocumentPrintModal = lazyView(() => import('./components/DocumentPrintModal'), 'DocumentPrintModal');
+const AccessAndResetModal = lazyView(() => import('./components/AccessAndResetModal'), 'AccessAndResetModal');
+const PaymentModal = lazyView(() => import('./components/PaymentModal'), 'PaymentModal');
+const StockTransferModal = lazyView(() => import('./components/StockTransferModal'), 'StockTransferModal');
+const InvoiceDetailModal = lazyView(() => import('./components/InvoiceDetailModal'), 'InvoiceDetailModal');
+const EditInvoiceModal = lazyView(() => import('./components/EditInvoiceModal'), 'EditInvoiceModal');
+
+/** Skeleton shown while a workspace view chunk is being fetched. */
+const ViewLoadingSkeleton: React.FC = () => (
+  <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-5" dir="rtl" aria-busy="true" aria-live="polite">
+    <div className="flex items-center gap-3">
+      <div className="app-skeleton w-10 h-10 rounded-xl" />
+      <div className="space-y-2 flex-1">
+        <div className="app-skeleton h-4 w-48 rounded-md" />
+        <div className="app-skeleton h-3 w-72 rounded-md" />
+      </div>
+    </div>
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {[0, 1, 2, 3].map(i => (
+        <div key={i} className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
+          <div className="app-skeleton h-3 w-24 rounded-md" />
+          <div className="app-skeleton h-6 w-32 rounded-md" />
+        </div>
+      ))}
+    </div>
+    <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
+      <div className="app-skeleton h-4 w-40 rounded-md" />
+      {[0, 1, 2, 3, 4, 5].map(i => (
+        <div key={i} className="app-skeleton h-9 w-full rounded-lg" />
+      ))}
+    </div>
+    <span className="sr-only">در حال بارگذاری…</span>
+  </div>
+);
 
 const MainApp: React.FC = () => {
   const {
@@ -63,8 +91,51 @@ const MainApp: React.FC = () => {
     companySettings,
     logout,
   } = useAccounting();
-  const [activeTab, setActiveTab] = useState<NavTab>('dashboard');
+  const LAST_TAB_KEY = 'hesabdar_last_active_tab_v1';
+  const [activeTab, setActiveTab] = useState<NavTab>(() => {
+    try {
+      const saved = localStorage.getItem(LAST_TAB_KEY) as NavTab | null;
+      return saved || 'dashboard';
+    } catch {
+      return 'dashboard';
+    }
+  });
   const [subFilter, setSubFilter] = useState<string>('all');
+
+  // Always start a newly opened screen from the top instead of inheriting the
+  // previous screen's scroll offset (jarring on long reports and lists).
+  useEffect(() => {
+    const container = mainScrollRef.current;
+    if (!container) return;
+    try {
+      container.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+    } catch {
+      container.scrollTop = 0;
+    }
+  }, [activeTab, subFilter]);
+
+  // Remember the last visited screen so reopening the app (e.g. from a phone)
+  // returns the user straight to where they left off.
+  useEffect(() => {
+    try {
+      localStorage.setItem(LAST_TAB_KEY, activeTab);
+    } catch {
+      /* storage unavailable — non-critical */
+    }
+  }, [activeTab]);
+
+  // The scrollable view container (reset on navigation so users always land at the top)
+  const mainScrollRef = React.useRef<HTMLElement | null>(null);
+
+  // Navigation shell state: off-canvas sidebar drawer, command palette, shortcuts help
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+  const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
+
+  const handleNavigate = React.useCallback((tab: NavTab, filter: string = 'all') => {
+    setSubFilter(filter);
+    setActiveTab(tab);
+  }, []);
 
   // References for live Telegram Bot listener
   const partiesRef = React.useRef(parties);
@@ -244,6 +315,23 @@ const MainApp: React.FC = () => {
     }
   };
 
+  // ---- Global keyboard shortcuts (Ctrl+K palette, Alt+<key> actions, …) ----
+  useGlobalShortcuts({
+    onTogglePalette: () => setIsCommandPaletteOpen(prev => !prev),
+    onToggleSidebar: () => setIsSidebarOpen(prev => !prev),
+    onNavigate: tab => {
+      setSubFilter('all');
+      setActiveTab(tab);
+    },
+    onNewSale: () => handleOpenNewInvoice('sell'),
+    onNewPurchase: () => handleOpenNewInvoice('buy'),
+    onNewReceipt: () => handleOpenPaymentModal('receive_payment'),
+    onNewPayment: () => handleOpenPaymentModal('make_payment'),
+    onTransfer: () => handleOpenTransferModal(),
+    onManageUsers: () => handleOpenAccessModal('roles'),
+    onShowHelp: () => setIsShortcutsOpen(true),
+  });
+
   // Full Security Lock Screen if license is expired, tampered, or clock rolled back
   if (
     licenseStatus &&
@@ -280,7 +368,8 @@ const MainApp: React.FC = () => {
 
   return (
     <div className="flex h-screen w-screen bg-slate-100 text-slate-800 font-sans overflow-hidden select-none" dir="rtl">
-      {/* Sidebar with Hierarchical Submenus and Dynamic Theme/Style */}
+      {/* Sidebar with Hierarchical Submenus and Dynamic Theme/Style
+          (docked on desktop, off-canvas drawer on phones/tablets) */}
       <Sidebar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
@@ -291,6 +380,8 @@ const MainApp: React.FC = () => {
         onOpenTransferModal={handleOpenTransferModal}
         onOpenAccessModal={handleOpenAccessModal}
         onOpenTelegramModal={() => setActiveTab('telegram_manager')}
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
       />
 
       {/* Main Content Area */}
@@ -302,11 +393,19 @@ const MainApp: React.FC = () => {
           onOpenPaymentModal={handleOpenPaymentModal}
           onOpenAccessModal={handleOpenAccessModal}
           onOpenTelegramModal={() => setActiveTab('telegram_manager')}
+          onToggleSidebar={() => setIsSidebarOpen(prev => !prev)}
+          onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
+          onShowShortcuts={() => setIsShortcutsOpen(true)}
         />
 
-        {/* View Body */}
-        <main className="flex-1 overflow-y-auto bg-slate-50">
+        {/* View Body — bottom padding keeps content clear of the mobile tab bar */}
+        <main
+          ref={mainScrollRef}
+          className="flex-1 overflow-y-auto bg-slate-50 app-touch-scroll pb-24 lg:pb-0"
+        >
           <ErrorBoundary onReset={() => setActiveTab('dashboard')}>
+            <Suspense fallback={<ViewLoadingSkeleton />}>
+            <div key={activeTab} className="app-view-enter">
             {/* Dashboard */}
             {activeTab === 'dashboard' && (
               <DashboardView
@@ -504,9 +603,43 @@ const MainApp: React.FC = () => {
               <TelegramManagementView />
             </div>
           )}
+            </div>
+            </Suspense>
           </ErrorBoundary>
         </main>
       </div>
+
+      {/* Mobile bottom tab bar (phones / tablets only) */}
+      <ErrorBoundary>
+      <MobileBottomNav
+        activeTab={activeTab}
+        onNavigate={(tab, filter) => {
+          setSubFilter(filter || 'all');
+          setActiveTab(tab);
+        }}
+        onOpenMenu={() => setIsSidebarOpen(true)}
+        onOpenQuickActions={() => setIsCommandPaletteOpen(true)}
+      />
+
+      {/* Global search & quick command palette (Ctrl/⌘ + K) */}
+      <CommandPalette
+        isOpen={isCommandPaletteOpen}
+        onClose={() => setIsCommandPaletteOpen(false)}
+        onNavigate={(tab, filter) => {
+          setSubFilter(filter || 'all');
+          setActiveTab(tab);
+        }}
+        onOpenNewInvoice={handleOpenNewInvoice}
+        onOpenPaymentModal={handleOpenPaymentModal}
+        onOpenTransferModal={handleOpenTransferModal}
+        onOpenAccessModal={handleOpenAccessModal}
+        onViewInvoice={handleViewInvoice}
+        onShowShortcuts={() => setIsShortcutsOpen(true)}
+      />
+
+      {/* Keyboard shortcut reference (Alt + H) */}
+      <KeyboardShortcutsModal isOpen={isShortcutsOpen} onClose={() => setIsShortcutsOpen(false)} />
+      </ErrorBoundary>
 
       {/* Notifications Toast */}
       <ToastContainer />
@@ -539,6 +672,8 @@ const MainApp: React.FC = () => {
         onClose={() => setEditingInvoiceGlobal(null)}
       />
 
+      {/* Lazily loaded dialogs — rendering nothing while their chunk arrives */}
+      <Suspense fallback={null}>
       {/* Printing & Document Modal */}
       <DocumentPrintModal
         document={activePrintDoc}
@@ -596,6 +731,7 @@ const MainApp: React.FC = () => {
         isOpen={isTelegramModalOpen}
         onClose={() => setIsTelegramModalOpen(false)}
       />
+      </Suspense>
     </div>
   );
 };

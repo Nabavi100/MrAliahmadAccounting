@@ -1083,24 +1083,275 @@ app.post('/api/telegram/sync-parties', (req: Request, res: Response) => {
   }
 });
 
+// ================= ACCOUNTING DATA PERSISTENCE (SERVER-SIDE) =================
+// Keeps the bookkeeping dataset on the server instead of (only) in the browser:
+//  - survives browser cache/history clearing and machine re-installation
+//  - allows several users/computers to work on the same books
+//  - keeps automatic rotating backups
+
+import { getAppDataKey, injectAppDataKeyMeta, APP_DATA_KEY_ENV, APP_DATA_META_NAME } from './shared/appDataKey';
+
+const APP_DATA_DIR = path.join(DATA_DIR, 'appdata');
+const APP_DATA_FILE = path.join(APP_DATA_DIR, 'accounting-data.json');
+const APP_BACKUP_DIR = path.join(APP_DATA_DIR, 'backups');
+const MAX_BACKUPS = 30;
+
+function ensureAppDataDirs() {
+  if (!fs.existsSync(APP_DATA_DIR)) fs.mkdirSync(APP_DATA_DIR, { recursive: true });
+  if (!fs.existsSync(APP_BACKUP_DIR)) fs.mkdirSync(APP_BACKUP_DIR, { recursive: true });
+}
+
+interface AppDataRecord {
+  version: string;
+  revision: number;
+  updatedAt: string;
+  updatedBy: string;
+  data: Record<string, unknown>;
+}
+
+function readAppData(): AppDataRecord | null {
+  try {
+    if (!fs.existsSync(APP_DATA_FILE)) return null;
+    const raw = fs.readFileSync(APP_DATA_FILE, 'utf-8');
+    if (!raw.trim()) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && parsed.data) return parsed as AppDataRecord;
+    return null;
+  } catch (err) {
+    console.error('[AppData] Failed to read data file:', err);
+    return null;
+  }
+}
+
+/** Atomic write so a crash or power loss can never leave a half-written file. */
+function writeAppData(record: AppDataRecord) {
+  ensureAppDataDirs();
+  const tmpFile = `${APP_DATA_FILE}.tmp`;
+  fs.writeFileSync(tmpFile, JSON.stringify(record), 'utf-8');
+  fs.renameSync(tmpFile, APP_DATA_FILE);
+}
+
+function rotateAppBackup(previous: AppDataRecord) {
+  try {
+    ensureAppDataDirs();
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    fs.writeFileSync(
+      path.join(APP_BACKUP_DIR, `accounting-data-${stamp}.json`),
+      JSON.stringify(previous),
+      'utf-8'
+    );
+
+    const files = fs
+      .readdirSync(APP_BACKUP_DIR)
+      .filter(f => f.startsWith('accounting-data-') && f.endsWith('.json'))
+      .sort();
+    while (files.length > MAX_BACKUPS) {
+      const oldest = files.shift();
+      if (oldest) fs.unlinkSync(path.join(APP_BACKUP_DIR, oldest));
+    }
+  } catch (err) {
+    console.error('[AppData] Backup rotation failed:', err);
+  }
+}
+
+/** Reject requests that do not present the configured access key (when enabled). */
+function isDataRequestAuthorized(req: Request): boolean {
+  const expected = getAppDataKey();
+  if (!expected) return true;
+  const provided = String(
+    req.header('x-app-key') || (req.query?.key as string) || (req.body && req.body.__key) || ''
+  );
+  const a = Buffer.from(expected);
+  const b = Buffer.from(provided);
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+
+app.get('/api/app/status', (req: Request, res: Response) => {
+  const record = readAppData();
+  let backupCount = 0;
+  let lastBackupAt: string | null = null;
+  try {
+    if (fs.existsSync(APP_BACKUP_DIR)) {
+      const files = fs
+        .readdirSync(APP_BACKUP_DIR)
+        .filter(f => f.startsWith('accounting-data-') && f.endsWith('.json'))
+        .sort();
+      backupCount = files.length;
+      if (files.length) {
+        lastBackupAt = fs.statSync(path.join(APP_BACKUP_DIR, files[files.length - 1])).mtime.toISOString();
+      }
+    }
+  } catch {
+    /* backup listing is informational only */
+  }
+
+  res.json({
+    ok: true,
+    protected: !!getAppDataKey(),
+    authHeader: 'x-app-key',
+    keyMetaName: APP_DATA_META_NAME,
+    hasData: !!record,
+    revision: record?.revision ?? 0,
+    updatedAt: record?.updatedAt ?? null,
+    updatedBy: record?.updatedBy ?? null,
+    storagePath: 'server_data/appdata/accounting-data.json',
+    backupCount,
+    lastBackupAt,
+    serverTime: new Date().toISOString(),
+  });
+});
+
+app.get('/api/app/data', (req: Request, res: Response) => {
+  if (!isDataRequestAuthorized(req)) {
+    return res.status(401).json({ ok: false, error: 'کلید دسترسی به سرور نامعتبر است.' });
+  }
+  const record = readAppData();
+  if (!record) {
+    return res.json({ ok: true, version: null, revision: 0, updatedAt: null, data: null });
+  }
+  res.json({
+    ok: true,
+    version: record.version,
+    revision: record.revision,
+    updatedAt: record.updatedAt,
+    updatedBy: record.updatedBy,
+    data: record.data,
+  });
+});
+
+app.put('/api/app/data', (req: Request, res: Response) => {
+  if (!isDataRequestAuthorized(req)) {
+    return res.status(401).json({ ok: false, error: 'کلید دسترسی به سرور نامعتبر است.' });
+  }
+
+  const { data, version, clientRevision, updatedBy } = req.body || {};
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    return res.status(400).json({ ok: false, error: 'داده ارسالی نامعتبر است.' });
+  }
+
+  const previous = readAppData();
+  const nextRevision = Date.now();
+
+  // Conflict detection MUST happen before anything is written: a client that is
+  // behind must never overwrite newer data. `clientRevision = 0` means the
+  // caller intends to overwrite (first upload / explicit restore / force save).
+  if (previous && typeof clientRevision === 'number' && clientRevision > 0) {
+    if (previous.revision > clientRevision) {
+      return res.status(409).json({
+        ok: false,
+        conflict: true,
+        error: 'یک نسخه جدیدتر از اطلاعات روی سرور موجود است.',
+        serverRevision: previous.revision,
+        serverUpdatedAt: previous.updatedAt,
+        serverUpdatedBy: previous.updatedBy,
+      });
+    }
+  }
+
+  try {
+    if (previous) rotateAppBackup(previous);
+    writeAppData({
+      version: typeof version === 'string' ? version : 'unknown',
+      revision: nextRevision,
+      updatedAt: new Date().toISOString(),
+      updatedBy: typeof updatedBy === 'string' ? updatedBy : '',
+      data,
+    });
+  } catch (err: any) {
+    console.error('[AppData] Failed to save:', err);
+    return res.status(500).json({ ok: false, error: `ذخیره اطلاعات روی سرور ناموفق بود: ${err?.message || err}` });
+  }
+
+  res.json({ ok: true, revision: nextRevision, updatedAt: new Date().toISOString() });
+});
+
+app.get('/api/app/backups', (req: Request, res: Response) => {
+  if (!isDataRequestAuthorized(req)) {
+    return res.status(401).json({ ok: false, error: 'کلید دسترسی به سرور نامعتبر است.' });
+  }
+  try {
+    ensureAppDataDirs();
+    const files = fs
+      .readdirSync(APP_BACKUP_DIR)
+      .filter(f => f.startsWith('accounting-data-') && f.endsWith('.json'))
+      .sort()
+      .reverse();
+    const list = files.slice(0, 50).map(file => {
+      const stat = fs.statSync(path.join(APP_BACKUP_DIR, file));
+      return { file, sizeBytes: stat.size, createdAt: stat.mtime.toISOString() };
+    });
+    res.json({ ok: true, backups: list });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, error: String(err?.message || err) });
+  }
+});
+
+app.get('/api/app/backups/:file', (req: Request, res: Response) => {
+  if (!isDataRequestAuthorized(req)) {
+    return res.status(401).json({ ok: false, error: 'کلید دسترسی به سرور نامعتبر است.' });
+  }
+  const file = String(req.params.file || '');
+  // Path-traversal guard: only the expected file shape may be requested.
+  if (!/^accounting-data-[A-Za-z0-9._-]+\.json$/.test(file)) {
+    return res.status(400).json({ ok: false, error: 'نام فایل پشتیبان نامعتبر است.' });
+  }
+  const fullPath = path.join(APP_BACKUP_DIR, file);
+  if (!fs.existsSync(fullPath)) {
+    return res.status(404).json({ ok: false, error: 'فایل پشتیبان یافت نشد.' });
+  }
+  try {
+    const parsed = JSON.parse(fs.readFileSync(fullPath, 'utf-8'));
+    res.json({ ok: true, ...parsed });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, error: String(err?.message || err) });
+  }
+});
+
 // ================= VITE / STATIC INTEGRATION =================
 async function initServer() {
+  // The access key is injected into the served HTML so the official client can
+  // reach the protected data API without any manual configuration.
+  const appDataKeyPlugin = {
+    name: 'app-data-key-injector',
+    transformIndexHtml(html: string) {
+      return injectAppDataKeyMeta(html, getAppDataKey());
+    },
+  };
+
   if (!isProd) {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
+      plugins: [appDataKeyPlugin as any],
     });
     app.use(vite.middlewares);
   } else {
     const distPath = path.resolve(process.cwd(), 'dist');
-    app.use(express.static(distPath));
+    const indexPath = path.join(distPath, 'index.html');
+    // `index: false` so that `/` reaches the handler below, which injects the
+    // data-API key into the served HTML.
+    app.use(express.static(distPath, { index: false }));
     app.get('*', (req: Request, res: Response) => {
-      res.sendFile(path.join(distPath, 'index.html'));
+      try {
+        res.type('html').send(injectAppDataKeyMeta(fs.readFileSync(indexPath, 'utf-8')));
+      } catch {
+        res.sendFile(indexPath);
+      }
     });
   }
 
+  ensureAppDataDirs();
+
   app.listen(PORT, '0.0.0.0', () => {
+    const dataKey = getAppDataKey();
     console.log(`🚀 Accounting Full-Stack Server running on port ${PORT}`);
+    console.log(
+      dataKey
+        ? `🔐 Accounting data API protected — set ${APP_DATA_KEY_ENV} to the same value on every client.`
+        : `ℹ️  Accounting data API is open. Set ${APP_DATA_KEY_ENV} to require an access key (recommended on a public server).`
+    );
+    console.log(`💾 Accounting data file: ${APP_DATA_FILE}`);
     startPolling();
   });
 }
