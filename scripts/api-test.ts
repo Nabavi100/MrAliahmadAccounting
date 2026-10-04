@@ -90,10 +90,29 @@ if (originalData) {
   console.log('  ℹ skipped (server had no dataset before this run)');
 }
 
-console.log('\n5) Server backups');
+console.log('\n5) Server backups (rotation)');
 const backups = await api('/api/app/backups');
 check('backup list responds', backups.status === 200 && Array.isArray(backups.body?.backups));
-check('a backup exists after writing', (backups.body?.backups?.length || 0) >= 1, `${backups.body?.backups?.length ?? 0} found`);
+
+if (originalData) {
+  check('a backup exists after writing', (backups.body?.backups?.length || 0) >= 1, `${backups.body?.backups?.length ?? 0} found`);
+} else {
+  // First run on a fresh server: there was no previous version to preserve.
+  const firstCount = backups.body?.backups?.length ?? 0;
+  check('first ever write creates no backup (nothing to preserve)', firstCount === 0, `${firstCount} found`);
+
+  // Every following save must rotate the previous version into the backup folder.
+  await api('/api/app/data', {
+    method: 'PUT',
+    body: JSON.stringify({ data: marker, clientRevision: 0, updatedBy: 'api-test', version: 'test' }),
+  });
+  const rotated = await api('/api/app/backups');
+  check(
+    'next write rotates a backup automatically',
+    (rotated.body?.backups?.length || 0) >= 1,
+    `${rotated.body?.backups?.length ?? 0} found`
+  );
+}
 
 console.log('\n6) Path-traversal guard');
 const traversal = await api('/api/app/backups/..%2F..%2Faccounting-data.json');
