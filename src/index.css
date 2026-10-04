@@ -641,6 +641,240 @@ body.gold .btn-active-luxury {
   background: #94a3b8;
 }
 
+/* ========================================================================= */
+/* ENTRANCE / MOTION UTILITIES                                              */
+/* Restores the `animate-in fade-in zoom-in-95 slide-in-from-*` class family */
+/* (used across the app) plus the shorthand animate-fadeIn / scaleUp / shake */
+/* ========================================================================= */
+@keyframes app-enter {
+  from {
+    opacity: var(--tw-enter-opacity, 1);
+    transform: translate3d(var(--tw-enter-translate-x, 0), var(--tw-enter-translate-y, 0), 0)
+      scale3d(var(--tw-enter-scale, 1), var(--tw-enter-scale, 1), 1);
+  }
+}
+
+@keyframes app-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes app-scale-up {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+
+@keyframes app-shake {
+  10%, 90% { transform: translateX(-1px); }
+  20%, 80% { transform: translateX(2px); }
+  30%, 50%, 70% { transform: translateX(-4px); }
+  40%, 60% { transform: translateX(4px); }
+}
+
+@keyframes app-shimmer {
+  100% {
+    transform: translateX(-100%);
+  }
+}
+
+@keyframes app-view-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@keyframes app-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.985);
+  }
+}
+
+.animate-in {
+  animation-name: app-enter;
+  animation-duration: var(--tw-duration, 200ms);
+  animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  animation-fill-mode: both;
+}
+
+.fade-in,
+.fade-in-0 {
+  --tw-enter-opacity: 0;
+}
+
+.zoom-in {
+  --tw-enter-scale: 0.94;
+}
+
+.zoom-in-95 {
+  --tw-enter-scale: 0.95;
+}
+
+.slide-in-from-top-1 { --tw-enter-translate-y: -0.25rem; }
+.slide-in-from-top-2 { --tw-enter-translate-y: -0.5rem; }
+.slide-in-from-top-3 { --tw-enter-translate-y: -0.75rem; }
+.slide-in-from-top-4 { --tw-enter-translate-y: -1rem; }
+.slide-in-from-top-6 { --tw-enter-translate-y: -1.5rem; }
+.slide-in-from-top-8 { --tw-enter-translate-y: -2rem; }
+.slide-in-from-bottom-1 { --tw-enter-translate-y: 0.25rem; }
+.slide-in-from-bottom-2 { --tw-enter-translate-y: 0.5rem; }
+.slide-in-from-bottom-3 { --tw-enter-translate-y: 0.75rem; }
+.slide-in-from-bottom-4 { --tw-enter-translate-y: 1rem; }
+.slide-in-from-bottom-6 { --tw-enter-translate-y: 1.5rem; }
+.slide-in-from-bottom-8 { --tw-enter-translate-y: 2rem; }
+.slide-in-from-right-4 { --tw-enter-translate-x: 1rem; }
+.slide-in-from-left-4 { --tw-enter-translate-x: -1rem; }
+
+.animate-fadeIn {
+  animation: app-fade-in 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.animate-scaleUp {
+  animation: app-scale-up 0.24s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.animate-shake {
+  animation: app-shake 0.5s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+}
+
+.animate-pop-in {
+  animation: app-pop-in 0.18s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Smooth cross-fade used when switching between main views */
+.app-view-enter {
+  animation: app-view-enter 0.26s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Loading placeholder shimmer (used by Suspense fallbacks) */
+.app-skeleton {
+  position: relative;
+  overflow: hidden;
+  background-color: #eef2f7;
+}
+
+.app-skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(100%);
+  background-image: linear-gradient(90deg, rgba(255, 255, 255, 0) 0, rgba(255, 255, 255, 0.65) 60%, rgba(255, 255, 255, 0));
+  animation: app-shimmer 1.4s infinite;
+}
+
+/* ========================================================================= */
+/* SCROLLBAR VARIANTS & TOUCH / MOBILE PRIMITIVES                           */
+/* ========================================================================= */
+
+/* Used by 13 components; previously undefined. */
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: #cbd5e1;
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: #94a3b8;
+}
+
+.custom-scrollbar-thin {
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+}
+
+.custom-scrollbar-thin::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+.custom-scrollbar-thin::-webkit-scrollbar-thumb {
+  background-color: #cbd5e1;
+  border-radius: 9999px;
+}
+
+/* Momentum scrolling + no tap flash on touch devices */
+.app-touch-scroll {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+.app-no-tap-highlight {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Respect the device safe area on notched phones (used by the mobile tab bar) */
+.app-safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Horizontally scrollable data tables on narrow screens without breaking layout */
+.app-table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+}
+
+/* Global keyboard focus visibility (mouse users are unaffected) */
+:where(button, a, input, select, textarea, [role='button'], [tabindex]):focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+  border-radius: 0.5rem;
+}
+
+/* Dark / gold themes need a lighter focus ring for contrast */
+body.theme-dark :where(button, a, input, select, textarea, [role='button'], [tabindex]):focus-visible,
+body.theme-gold :where(button, a, input, select, textarea, [role='button'], [tabindex]):focus-visible,
+body.theme-executive :where(button, a, input, select, textarea, [role='button'], [tabindex]):focus-visible {
+  outline-color: #38bdf8;
+}
+
+/* Prevent iOS Safari from zooming in when focusing a form field */
+@media (max-width: 640px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
+/* Keep the app usable for users who prefer reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .animate-in,
+  .animate-fadeIn,
+  .animate-scaleUp,
+  .animate-shake,
+  .animate-pop-in,
+  .app-view-enter {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+
+  * {
+    scroll-behavior: auto !important;
+  }
+}
+
 @media print {
   @page {
     size: A4 portrait;

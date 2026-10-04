@@ -22,6 +22,7 @@ import {
   Coins,
   Receipt,
   LogOut,
+  X,
   BookOpen,
 } from 'lucide-react';
 import { CompanySealLogo } from './CompanySealLogo';
@@ -70,6 +71,9 @@ interface SidebarProps {
   onOpenTransferModal?: () => void;
   onOpenAccessModal?: (tab?: 'roles' | 'reset' | 'backup') => void;
   onOpenTelegramModal?: () => void;
+  /** Mobile drawer state. On desktop (>= 1024px) the sidebar is always docked and visible. */
+  isOpen?: boolean;
+  onClose?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -82,9 +86,53 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenTransferModal,
   onOpenAccessModal,
   onOpenTelegramModal,
+  isOpen = true,
+  onClose,
 }) => {
   const { companySettings, logout } = useAccounting();
   const { theme, sidebarStyle } = useTheme();
+
+  // Track the desktop breakpoint so the off-canvas drawer logic only affects phones/tablets.
+  const [isDesktop, setIsDesktop] = useState<boolean>(() =>
+    typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      ? window.matchMedia('(min-width: 1024px)').matches
+      : true
+  );
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const mq = window.matchMedia('(min-width: 1024px)');
+    const handler = (e: MediaQueryListEvent) => setIsDesktop(e.matches);
+    if (typeof mq.addEventListener === 'function') {
+      mq.addEventListener('change', handler);
+      return () => mq.removeEventListener('change', handler);
+    }
+    // Safari < 14 fallback
+    mq.addListener(handler);
+    return () => mq.removeListener(handler);
+  }, []);
+
+  // Closed drawer is hidden from assistive tech and from keyboard tab order,
+  // but only while it is actually behaving as an off-canvas drawer (mobile).
+  const isDrawerHidden = !isOpen && !isDesktop;
+
+  // Close the mobile drawer with Escape, and lock background scrolling while it is open.
+  useEffect(() => {
+    if (!isOpen || isDesktop) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        onClose?.();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isOpen, isDesktop, onClose]);
 
   // Helper to find which section a tab belongs to
   const getSectionForTab = (tab: NavTab): string | null => {
@@ -185,6 +233,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
       accountingAndPnL: targetSection === 'accountingAndPnL',
       systemManagement: targetSection === 'systemManagement',
     });
+    // On phones/tablets the drawer closes automatically after a selection.
+    if (!isDesktop) {
+      onClose?.();
+    }
   };
 
   // Keep accordion in sync whenever activeTab changes from outside the sidebar
@@ -202,25 +254,54 @@ export const Sidebar: React.FC<SidebarProps> = ({
   }, [activeTab]);
 
   return (
-    <aside
-      id="app-sidebar-main"
-      className="w-72 bg-white border-l border-slate-200/80 flex flex-col shrink-0 select-none shadow-xs z-20 h-screen font-sans overflow-hidden"
-      dir="rtl"
-    >
-      {/* ---------------- 1. BRAND & COMPANY HEADER ---------------- */}
-      <div className="p-4 border-b border-slate-100 flex items-center justify-between gap-3">
-        <div className="flex flex-col min-w-0">
-          <h1 className="text-slate-900 font-black text-sm tracking-tight truncate">
-            {companySettings.name || 'شرکت تجارتی برادران نبوی'}
-          </h1>
-          <span className="text-[10px] text-slate-400 font-semibold tracking-wider uppercase mt-0.5">
-            .SYSTEM MANAGEMENT
-          </span>
-        </div>
+    <>
+      {/* Mobile / tablet backdrop — tapping it closes the navigation drawer */}
+      <div
+        id="app-sidebar-backdrop"
+        onClick={onClose}
+        aria-hidden="true"
+        className={`fixed inset-0 z-40 bg-slate-900/50 backdrop-blur-[2px] lg:hidden transition-opacity duration-300 ${
+          isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
+        }`}
+      />
 
-        {/* Authentic Company Circular Seal */}
-        <CompanySealLogo size={44} className="shadow-2xs" />
-      </div>
+      <aside
+        id="app-sidebar-main"
+        className={`fixed inset-y-0 right-0 z-50 w-72 max-w-[86vw] bg-white border-l border-slate-200/80 flex flex-col shrink-0 select-none shadow-2xl lg:shadow-xs lg:static lg:z-20 lg:w-72 lg:max-w-none h-screen font-sans overflow-hidden transition-transform duration-300 ease-out will-change-transform lg:transition-none ${
+          isOpen ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'
+        }`}
+        dir="rtl"
+        aria-label="منوی اصلی برنامه"
+        aria-hidden={isDrawerHidden}
+        inert={isDrawerHidden}
+      >
+        {/* ---------------- 1. BRAND & COMPANY HEADER ---------------- */}
+        <div className="p-4 border-b border-slate-100 flex items-center justify-between gap-3">
+          <div className="flex flex-col min-w-0">
+            <h1 className="text-slate-900 font-black text-sm tracking-tight truncate">
+              {companySettings.name || 'شرکت تجارتی برادران نبوی'}
+            </h1>
+            <span className="text-[10px] text-slate-400 font-semibold tracking-wider uppercase mt-0.5">
+              .SYSTEM MANAGEMENT
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1 shrink-0">
+            {/* Authentic Company Circular Seal */}
+            <CompanySealLogo size={44} className="shadow-2xs" />
+
+            {/* Drawer close button (phones / tablets only) */}
+            <button
+              type="button"
+              onClick={onClose}
+              className="lg:hidden w-9 h-9 -mr-1 flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition cursor-pointer"
+              aria-label="بستن منو"
+              title="بستن منو"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
 
       {/* ---------------- 2. EXACT ORDER OF MENU ITEMS ---------------- */}
       <nav className="flex-1 px-3 py-3 space-y-1.5 overflow-y-auto custom-scrollbar">
@@ -1010,6 +1091,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <span>خروج از سیستم</span>
         </button>
       </div>
+    </aside>
 
       {/* ---------------- MODALS FOR SIDEBAR ACTIONS ---------------- */}
       {/* 1. Branch / Company Switcher Modal */}
@@ -1154,6 +1236,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </div>
       )}
-    </aside>
+    </>
   );
 };
